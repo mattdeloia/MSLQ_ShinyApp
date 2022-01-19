@@ -86,6 +86,7 @@ ui <- fluidPage(
                                tags$h3("List of Input"),
                                radioButtons("feature_x2","Results Grouping variable:", c(grouping_variables), selected = "cluster"),
                                selectInput("feature_y","Results Independent variable:", c(all), selected = "Proficiency"),
+                               radioButtons("method2", "Scoring approach:", c("unscaled", "scaled"), selected="unscaled"),
                                circle = TRUE, status = "danger", icon = icon("cog"), width = "300px",
                                tooltip = tooltipOptions(title = "Click to see inputs !")
                                ),
@@ -227,9 +228,9 @@ server <- function(input, output) {
         ggbetweenstats(
             df_cluster2() %>%
                 gather(cluster, mos_transfer, experience, college_degree, key=feature, value = category) %>%
-                filter(feature==input$feature_x2) %>% 
-                unique() %>%
-                filter(measure == input$feature_y),
+                filter(feature==input$feature_x2, 
+                       measure == input$feature_y, 
+                       method ==input$method2),
             x=category, 
             y=score,
             xlab = paste("Group variable: ", input$feature_x2),
