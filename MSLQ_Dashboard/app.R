@@ -25,24 +25,15 @@ library(shinyjs)
 library(ggpmisc)
 library(ggstatsplot)
 library(DT)
-
-#read data
 all
 
 getwd()
+setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA Project Year2 Data/CEMA Year 2 Data Processing")
+#read data
 df <- read_rds("MSLQ_scored.rds") 
 df2 <- read_rds("MSLQ_scored2.rds") %>%
-    mutate(part_id = as.character(part_id)) %>% 
-    left_join(read_rds("proficiency.rds") %>% 
-                  rename(part_id = id) %>% 
-                  rename(proficiency = SRproficiency) %>%
-                  mutate(part_id = as.character(part_id))) %>% 
-    select(part_id:cert5,proficiency, category, component, measure,score) %>% 
-    
-    mutate_at(vars(mos_transfer, college_degree, advanced_degree, experience), ~replace_na(.x, "no")) %>% 
-    mutate_at(vars(mos_transfer, college_degree, advanced_degree, experience), ~if_else(.x=="yes", 1, 0)) %>% 
-    mutate_at(vars(college_years, experience_years), ~replace_na(.x, 0)) %>%
-    mutate_at(vars(college_years, experience_years), as.numeric)
+    #mutate(part_id = as.character(part_id)) %>% 
+    left_join(read_rds("proficiency.rds")) 
 
 
 df_cluster <-  df2 %>% 
