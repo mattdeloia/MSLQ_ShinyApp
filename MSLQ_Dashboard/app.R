@@ -29,6 +29,7 @@ all
 
 getwd()
 setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA Project Year2 Data/CEMA Year 2 Data Processing")
+
 #read data
 df <- read_rds("MSLQ_scored.rds") 
 df2 <- read_rds("MSLQ_scored2.rds") %>%
@@ -36,7 +37,8 @@ df2 <- read_rds("MSLQ_scored2.rds") %>%
     left_join(read_rds("proficiency.rds")) 
 
 
-df_cluster <-  df2 %>% 
+df_cluster <-  df2 %>%
+    filter(method =="unscaled") %>% 
     select(part_id, measure, score) %>% 
     pivot_wider(names_from = "measure", values_from = "score") %>%
     mutate_if(is.numeric, impute) %>% 
@@ -64,6 +66,7 @@ ui <- fluidPage(
                              dropdownButton(
                                tags$h3("List of Input"),
                                radioButtons("feature_x","Results Grouping variable:", c(grouping_variables), selected = "cluster"),
+                               radioButtons("method", "Scoring approach:", c("unscaled", "scaled"), selected="unscaled"),
                              
                                sliderInput(inputId = 'clusters', label = 'Number of clusters', value = 2, min = 2, max = 8),
                                plotOutput("clusterplot2", height = "200px"),
@@ -115,7 +118,8 @@ server <- function(input, output) {
     output$plot1 <- renderPlot({
       df_cluster2() %>% 
         gather(cluster, mos_transfer, experience, college_degree, key=feature, value = value) %>%
-        filter(feature==input$feature_x) %>% 
+        filter(feature==input$feature_x,
+               method==input$method) %>% 
         group_by(category, measure, value) %>% 
         summarise(group_mean = mean(score), sd = sd(score), n=n()) %>%
         ungroup() %>% 
