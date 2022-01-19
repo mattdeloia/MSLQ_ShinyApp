@@ -27,8 +27,8 @@ library(ggstatsplot)
 library(DT)
 all
 
-getwd()
-setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA Project Year2 Data/CEMA Year 2 Data Processing")
+# getwd()
+# setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA Project Year2 Data/CEMA Year 2 Data Processing")
 
 #read data
 df <- read_rds("MSLQ_scored.rds") 
