@@ -28,7 +28,7 @@ library(DT)
 all
 
 # getwd()
-# setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA Project Year2 Data/CEMA Year 2 Data Processing")
+ # setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA Project Year2 Data/CEMA Year 2 Data Processing")
 
 #read data
 df <- read_rds("MSLQ_scored.rds") 
@@ -38,7 +38,7 @@ df2 <- read_rds("MSLQ_scored2.rds") %>%
 
 
 df_cluster <-  df2 %>%
-    filter(method =="unscaled") %>% 
+    filter(method =="scaled") %>% 
     select(part_id, measure, score) %>% 
     pivot_wider(names_from = "measure", values_from = "score") %>%
     mutate_if(is.numeric, impute) %>% 
@@ -66,7 +66,7 @@ ui <- fluidPage(
                              dropdownButton(
                                tags$h3("List of Input"),
                                radioButtons("feature_x","Results Grouping variable:", c(grouping_variables), selected = "cluster"),
-                               radioButtons("method", "Scoring approach:", c("unscaled", "scaled"), selected="unscaled"),
+                               radioButtons("method", "Scoring approach:", c("unscaled", "scaled", "comparison"), selected="unscaled"),
                              
                                sliderInput(inputId = 'clusters', label = 'Number of clusters', value = 2, min = 2, max = 8),
                                plotOutput("clusterplot2", height = "200px"),
@@ -77,16 +77,15 @@ ui <- fluidPage(
                                plotOutput("plot1", height = "600px")),
                     
                     tabPanel(title="Results Table",
-                             box(
+                             box(width = 12,
                                dataTableOutput("table"),
                                dataTableOutput("table2"))),
                     
                     tabPanel(title="Comparison Plot",
                              dropdownButton(
                                tags$h3("List of Input"),
-                               radioButtons("feature_x2","Results Grouping variable:", c(grouping_variables), selected = "cluster"),
-                               selectInput("feature_y","Results Independent variable:", c(all), selected = "Proficiency"),
-                               radioButtons("method2", "Scoring approach:", c("unscaled", "scaled"), selected="unscaled"),
+                              selectInput("feature_y","Results Independent variable:", c(all), selected = "Proficiency"),
+                               radioButtons("method2", "Scoring approach:", c("unscaled", "scaled", "comparison"), selected="unscaled"),
                                circle = TRUE, status = "danger", icon = icon("cog"), width = "300px",
                                tooltip = tooltipOptions(title = "Click to see inputs !")
                                ),
@@ -203,6 +202,9 @@ server <- function(input, output) {
             ungroup() %>%
             mutate(sig = if_else(p_value <= .05,"**",
                                  if_else(p_value <= .10, "*", ""))) %>%
+        as.data.frame() %>% 
+        rownames_to_column("measure") %>% 
+        left_join(df2 %>% select(measure, description) %>% unique()) %>% 
             arrange(p_value)
     }) 
     
@@ -228,12 +230,12 @@ server <- function(input, output) {
         ggbetweenstats(
             df_cluster2() %>%
                 gather(cluster, mos_transfer, experience, college_degree, key=feature, value = category) %>%
-                filter(feature==input$feature_x2, 
+                filter(feature==input$feature_x, 
                        measure == input$feature_y, 
                        method ==input$method2),
             x=category, 
             y=score,
-            xlab = paste("Group variable: ", input$feature_x2),
+            xlab = paste("Group variable: ", input$feature_x),
             ylab = paste ("Measure: ", input$feature_y),
             #ggtheme = ggthemes::theme_fivethirtyeight(),
             pairwise.display = "all",
