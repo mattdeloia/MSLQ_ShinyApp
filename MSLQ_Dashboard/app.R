@@ -25,10 +25,10 @@ library(shinyjs)
 library(ggpmisc)
 library(ggstatsplot)
 library(DT)
-all
+
 
 # getwd()
- # setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA Project Year2 Data/CEMA Year 2 Data Processing")
+setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA Project Year2 Data/CEMA Year 2 Data Processing")
 
 #read data
 df <- read_rds("MSLQ_scored.rds") 
@@ -78,7 +78,7 @@ ui <- fluidPage(
                     
                     tabPanel(title="Results Table",
                              box(width = 12,
-                               dataTableOutput("table"),
+                               tableOutput("table"),
                                dataTableOutput("table2"))),
                     
                     tabPanel(title="Comparison Plot",
@@ -114,8 +114,7 @@ server <- function(input, output) {
         as.data.frame()
       })
     
-    #main plot
-    output$plot1 <- renderPlot({
+    plot <- reactive({
       df_cluster2() %>% 
         gather(cluster, mos_transfer, experience, college_degree, key=feature, value = value) %>%
         filter(feature==input$feature_x,
@@ -135,16 +134,22 @@ server <- function(input, output) {
             mutate(delta_rank = rank(sd)) %>% 
             select(-sd)
         ) %>%
-          filter(measure %in%  c(motivation, learning)) %>%
+        filter(measure %in%  c(motivation, learning))
+    })
+    
+    #main plot
+    output$plot1 <- renderPlot({
+      plot() %>%
         ggplot(aes(x=reorder(measure, delta_rank, FUN = mean), y=group_mean, color=value ))+
-        geom_point(size = 1) +
+        geom_point(size = 3) +
         geom_errorbar(aes(ymin =group_mean-ci , ymax=group_mean+ci), width = .2) +
         facet_grid(category~., scales = "free") +
         coord_flip()+
-        theme(legend.position = "right")+
+        theme(legend.position = "right", axis.text = element_text(size=12), strip.text = element_text(size=12))+
         ylab("group average") +
         xlab("")+
-        labs(title = paste("Grouping variable:", input$feature_x), caption = "Note: error bars represent 90% CI around mean score")
+        labs(title = paste("Grouping variable:", input$feature_x), caption = "Note: error bars represent 90% CI around mean score") +
+        scale_color_manual(values=c("blue", "red", "green", "black", "orange"))
       
     })
     
@@ -175,8 +180,8 @@ server <- function(input, output) {
             select(feature, value, n, mos_transfer, college_degree, advanced_degree, experience, proficiency)
     })
     
-    output$table <- renderDataTable( {
-        table() %>%  datatable(class = "display compact", filter = 'none') 
+    output$table <- renderTable( {
+        table() 
         })
     
     #comparions of means
