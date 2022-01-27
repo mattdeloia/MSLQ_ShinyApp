@@ -31,16 +31,20 @@ library(DT)
 setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA Project Year2 Data/CEMA Year 2 Data Processing")
 
 #read data
-df <- read_rds("MSLQ_scored.rds") 
-df2 <- read_rds("MSLQ_scored2.rds") %>%
+
+df <- read_rds("MSLQ_scored2.rds") %>%
     #mutate(part_id = as.character(part_id)) %>% 
-    left_join(read_rds("proficiency.rds")) 
+    left_join(read_rds("proficiency.rds")) %>% 
+  group_by(part_id) %>% 
+  mutate(missing = sum(is.na(unscaled))) %>% 
+  filter(missing<=1) %>% 
+  select(-missing) %>% 
+  ungroup()
+ 
 
-
-df_cluster <-  df2 %>%
-    filter(method =="scaled") %>% 
-    select(part_id, measure, score) %>% 
-    pivot_wider(names_from = "measure", values_from = "score") %>%
+df_cluster <-  df %>%
+  select(part_id, measure, scaled) %>% 
+    pivot_wider(names_from = "measure", values_from = "scaled") %>%
     mutate_if(is.numeric, impute) %>% 
     column_to_rownames("part_id") %>%
     as.matrix()
@@ -51,7 +55,7 @@ learning <- c('Rehearsal', 'Elaboration', 'Organization', 'Critical_Thinking', '
 
 all <- c(motivation, learning)
 
-grouping_variables <- c("cluster", "college_degree",  "experience", "mos_transfer")
+grouping_variables <- c("cluster","mos_transfer", "college_degree",  "experience")
 
 #############################
 
@@ -66,7 +70,7 @@ ui <- fluidPage(
                              dropdownButton(
                                tags$h3("List of Input"),
                                radioButtons("feature_x","Results Grouping variable:", c(grouping_variables), selected = "cluster"),
-                               radioButtons("method", "Scoring approach:", c("unscaled", "scaled", "comparison"), selected="unscaled"),
+                               radioButtons("score", "Scoring approach:", c("unscaled", "scaled"), selected="unscaled"),
                              
                                sliderInput(inputId = 'clusters', label = 'Number of clusters', value = 2, min = 2, max = 8),
                                plotOutput("clusterplot2", height = "200px"),
@@ -85,7 +89,7 @@ ui <- fluidPage(
                              dropdownButton(
                                tags$h3("List of Input"),
                               selectInput("feature_y","Results Independent variable:", c(all), selected = "Proficiency"),
-                               radioButtons("method2", "Scoring approach:", c("unscaled", "scaled", "comparison"), selected="unscaled"),
+                               
                                circle = TRUE, status = "danger", icon = icon("cog"), width = "300px",
                                tooltip = tooltipOptions(title = "Click to see inputs !")
                                ),
@@ -110,25 +114,20 @@ server <- function(input, output) {
         rownames_to_column("part_id") %>% 
         rename("cluster"=2) %>% 
         mutate(cluster = as.factor(cluster)) %>% 
-        right_join(df2) %>%
+        right_join(df) %>%
         as.data.frame()
       })
     
     plot <- reactive({
       df_cluster2() %>% 
-        gather(cluster, mos_transfer, experience, college_degree, key=feature, value = value) %>%
-        filter(feature==input$feature_x,
-               method==input$method) %>% 
-        group_by(category, measure, value) %>% 
-        summarise(group_mean = mean(score), sd = sd(score), n=n()) %>%
+        group_by(.data[[input$feature_x]], category, measure) %>% 
+        summarise(group_mean = mean(.data[[input$score]]), sd = sd(.data[[input$score]]), n=n()) %>%
         ungroup() %>% 
         mutate(ci =1.65*sd/n^.5 ) %>% 
         left_join(
           df_cluster2() %>% 
-            gather(cluster, mos_transfer, experience, college_degree, key=feature, value = value) %>%
-            filter(feature==input$feature_x) %>% 
-            group_by(measure, value) %>% 
-            summarise(mean = mean(score)) %>% 
+            group_by(.data[[input$feature_x]], measure) %>% 
+            summarise(mean = mean(.data[[input$score]])) %>% 
             group_by(measure) %>% 
             summarise(sd = sd(mean)) %>% 
             mutate(delta_rank = rank(sd)) %>% 
@@ -140,7 +139,8 @@ server <- function(input, output) {
     #main plot
     output$plot1 <- renderPlot({
       plot() %>%
-        ggplot(aes(x=reorder(measure, delta_rank, FUN = mean), y=group_mean, color=value ))+
+        mutate(feature = as.factor(.data[[input$feature_x]])) %>% 
+        ggplot(aes(x=reorder(measure, delta_rank, FUN = mean), y=group_mean, color=feature ))+
         geom_point(size = 3) +
         geom_errorbar(aes(ymin =group_mean-ci , ymax=group_mean+ci), width = .2) +
         facet_grid(category~., scales = "free") +
@@ -149,24 +149,17 @@ server <- function(input, output) {
         ylab("group average") +
         xlab("")+
         labs(title = paste("Grouping variable:", input$feature_x), caption = "Note: error bars represent 90% CI around mean score") +
-        scale_color_manual(values=c("blue", "red", "green", "black", "orange"))
+        scale_color_manual(name = input$feature_x, values=c("blue", "red", "green", "black", "orange"))
       
     })
     
     #Results tables  
     table <- reactive({
         df_cluster2() %>% 
-            gather(cluster, mos_transfer, experience, college_degree, key=feature, value = value) %>%
-            filter(feature==input$feature_x) %>% 
-            select(part_id, feature, value) %>% 
-            unique() %>% 
-            left_join(
-                df_cluster2() %>% 
-                    select(part_id, cluster, mos_transfer, college_degree, advanced_degree, experience, college_years, experience_years, proficiency) %>% 
-                  unique()
-            ) %>% 
-            group_by(feature, value) %>%
-            summarise(n = n(),
+        select(part_id, cluster, mos_transfer, college_degree, advanced_degree, experience, college_years, experience_years, proficiency) %>% 
+        unique() %>%
+        group_by(.data[[input$feature_x]]) %>%
+        summarise(n = n(),
                       college_years = round(mean(college_years, na.rm=TRUE),1), 
                       experience_years = round(mean(experience_years, na.rm=TRUE),1),
                       mos_transfer = sum(mos_transfer),
@@ -177,7 +170,7 @@ server <- function(input, output) {
             mutate(proficiency = round(proficiency, 1)) %>% 
             mutate_at(vars(mos_transfer, college_degree, advanced_degree, experience), ~round(.x/n*100,1)) %>%
             mutate_at(vars(mos_transfer, college_degree, advanced_degree, experience), ~paste(.x,"%", sep="")) %>% 
-            select(feature, value, n, mos_transfer, college_degree, advanced_degree, experience, proficiency)
+            select(.data[[input$feature_x]], n, mos_transfer, college_degree, advanced_degree, experience, proficiency)
     })
     
     output$table <- renderTable( {
@@ -188,10 +181,9 @@ server <- function(input, output) {
     
     p_values <- reactive ({
         df_cluster2() %>%
-        gather(cluster, mos_transfer, experience, college_degree, key=feature, value = value) %>%
-        filter(feature==input$feature_x) %>%  
+        mutate(feature = as.factor(.data[[input$feature_x]])) %>% 
         group_by(measure) %>%
-        t_test(score ~ value)
+        t_test(scaled ~ feature)
     })
     
 
@@ -209,7 +201,7 @@ server <- function(input, output) {
                                  if_else(p_value <= .10, "*", ""))) %>%
         as.data.frame() %>% 
         rownames_to_column("measure") %>% 
-        left_join(df2 %>% select(measure, description) %>% unique()) %>% 
+        left_join(df %>% select(measure) %>% unique()) %>% 
             arrange(p_value)
     }) 
     
@@ -234,12 +226,10 @@ server <- function(input, output) {
     output$results_plot <- renderPlot({
         ggbetweenstats(
             df_cluster2() %>%
-                gather(cluster, mos_transfer, experience, college_degree, key=feature, value = category) %>%
-                filter(feature==input$feature_x, 
-                       measure == input$feature_y, 
-                       method ==input$method2),
-            x=category, 
-            y=score,
+              mutate(feature = as.factor(.data[[input$feature_x]])) %>% 
+                filter(measure == input$feature_y),
+            x=feature, 
+            y=scaled,
             xlab = paste("Group variable: ", input$feature_x),
             ylab = paste ("Measure: ", input$feature_y),
             #ggtheme = ggthemes::theme_fivethirtyeight(),
