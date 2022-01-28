@@ -32,6 +32,18 @@ setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA P
 
 #read data
 
+df_item <- read_rds("MSLQ_scored.rds") %>% 
+  gather(mslq1:mslq81, key=item, value = score) %>% 
+  mutate(reverse = if_else(item  %in% c('mslq33', 'mslq57', 'mslq52', 'mslq80', 'mslq37', 'mslq60', 'mslq40', 'mslq77'), "yes", "no")) %>% 
+  group_by(item, reverse) %>% 
+  summarise(mean = mean(score, na.rm = TRUE), sd = sd(score, na.rm = TRUE)) %>% 
+  left_join(read.csv("mslq_questions.csv")) %>% 
+  separate(item, into = c("item1", "item"), sep = "q") %>% 
+  select(-item1) 
+
+item_mean <- mean(df_item$mean)
+item_sd <- mean(df_item$sd)
+
 df <- read_rds("MSLQ_scored2.rds") %>%
     #mutate(part_id = as.character(part_id)) %>% 
     left_join(read_rds("proficiency.rds")) %>% 
@@ -94,7 +106,12 @@ ui <- fluidPage(
                                tooltip = tooltipOptions(title = "Click to see inputs !")
                                ),
                              
-                             plotOutput("results_plot", height = "600px"))
+                             plotOutput("results_plot", height = "600px")),
+                    
+                    tabPanel(title = "Item Analysis",
+                             plotOutput("item_plot", brush="plot_brush", height = "500px"),
+                             tableOutput("data"))
+          
                     )
            
     )
@@ -236,6 +253,23 @@ server <- function(input, output) {
             pairwise.display = "all",
             conf.level = .90)
         
+    })
+    
+    output$item_plot <- renderPlot({
+      df_item %>% 
+        ggplot(aes(x=mean, y=sd, color=reverse)) +
+        geom_jitter(size=.1) +
+        geom_text(aes(label=item), size = 3.5) +
+        scale_color_manual(values=c("darkgray", "red")) +
+        geom_vline(xintercept = item_mean, linetype="dashed", color="darkgray") +
+        geom_hline(yintercept = item_sd, linetype="dashed", color="darkgray") +
+        theme(legend.position = "blank") +
+        facet_wrap(scale~.)+
+        labs(caption = "Note: reverse scored items in red font")
+    })
+    
+    output$data <- renderTable({
+      brushedPoints(df_item, input$plot_brush)
     })
     
 }
