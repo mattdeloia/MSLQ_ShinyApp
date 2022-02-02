@@ -35,67 +35,90 @@ setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA P
 df_item <- read_rds("MSLQ_scored.rds") %>% 
   gather(mslq1:mslq81, key=item, value = score) %>% 
   mutate(reverse = if_else(item  %in% c('mslq33', 'mslq57', 'mslq52', 'mslq80', 'mslq37', 'mslq60', 'mslq40', 'mslq77'), "yes", "no")) %>% 
-  group_by(item, reverse) %>% 
-  summarise(mean = mean(score, na.rm = TRUE), sd = sd(score, na.rm = TRUE)) %>% 
+  dplyr::group_by(item, reverse) %>% 
+  dplyr::summarise(mean = mean(score, na.rm = TRUE), sd = sd(score, na.rm = TRUE)) %>% 
   left_join(read.csv("mslq_questions.csv")) %>% 
+  left_join(read.csv("mslq_scale_alphas.csv")) %>% 
+  left_join(read.csv("item_loadings.csv")) %>% 
   separate(item, into = c("item1", "item"), sep = "q") %>% 
-  select(-item1) 
+  mutate(scale = paste(scale, "(alpha=", round(alpha,2), ")")) %>%
+   dplyr::select(item, mean, sd, loading, content, reverse, scale)
 
 item_mean <- mean(df_item$mean)
 item_sd <- mean(df_item$sd)
+item_loading_low <- quantile(df_item$loading, .3 )
+item_loading_high<- quantile(df_item$loading, .7 )
 
 df <- read_rds("MSLQ_scored2.rds") %>%
-    #mutate(part_id = as.character(part_id)) %>% 
-    left_join(read_rds("proficiency.rds")) %>% 
   group_by(part_id) %>% 
   mutate(missing = sum(is.na(unscaled))) %>% 
   filter(missing<=1) %>% 
-  select(-missing) %>% 
+  dplyr::select(-missing) %>% 
   ungroup()
  
-
 df_cluster <-  df %>%
-  select(part_id, measure, scaled) %>% 
+  dplyr::select(part_id, measure, scaled) %>% 
     pivot_wider(names_from = "measure", values_from = "scaled") %>%
     mutate_if(is.numeric, impute) %>% 
     column_to_rownames("part_id") %>%
     as.matrix()
 
-motivation <- c("Intrinsic_Goal_Orientation", "Extrinsic_Goal_Orientation", "Task_Value", 'Control_Beliefs_about_Learning', 'Selfefficacy_for_Learning_and_Performance', "Test_Anxiety")
+Motivation <- c("Intrinsic_Goal_Orientation", "Extrinsic_Goal_Orientation", "Task_Value", 'Control_Beliefs_about_Learning', 'Selfefficacy_for_Learning_and_Performance', "Test_Anxiety")
 
-learning <- c('Rehearsal', 'Elaboration', 'Organization', 'Critical_Thinking', 'Metacognitive_Selfregulation', 'Time_Study_Environment', 'Effort_Regulation', 'Peer_Learning', 'Help_Seeking')
+Learning_Strategy <- c('Rehearsal', 'Elaboration', 'Organization', 'Critical_Thinking', 'Metacognitive_Selfregulation', 'Time_Study_Environment', 'Effort_Regulation', 'Peer_Learning', 'Help_Seeking')
 
-all <- c(motivation, learning)
+all <- c(Motivation, Learning_Strategy)
+
+all_scales <-  Motivation %>% as.data.frame() %>% mutate(category ="Motivation") %>% 
+  bind_rows( Learning_Strategies %>% as.data.frame() %>% mutate(category ="Learning Strategy")) %>% 
+  dplyr::rename(scale = 1) %>% 
+  left_join(read_csv("mslq_scale_alphas.csv")) %>% 
+  mutate(scale = paste(scale, "(alpha=", round(alpha,2), ")")) %>% 
+  select(-alpha)
+  
 
 grouping_variables <- c("cluster","mos_transfer", "college_degree",  "experience")
+grouping_variables2 <- c("college_degree", "advanced_degree",  "experience")
+
 
 #############################
 
-ui <- fluidPage(
+ui <- dashboardPage(
     
     # Application title
-    titlePanel("Cyber Trainee MSLQ Dashboard"),
+    dashboardHeader(title = "Cyber Trainee MSLQ Dashboard"),
+    
+    dashboardSidebar(
+   
+        radioButtons("feature_x","Results Grouping variable:", c(grouping_variables), selected = "cluster"),
+        radioButtons("score", "Scoring approach:", c("unscaled", "scaled"), selected="unscaled"),
+        sliderInput(inputId = 'clusters', label = 'Number of clusters', value = 2, min = 2, max = 8),
+        plotOutput("clusterplot2", height = "200px")
+        ),
+    
+    dashboardBody(
   
                   tabsetPanel(
                     
                     tabPanel(title="Scale Plot",
-                             dropdownButton(
-                               tags$h3("List of Input"),
-                               radioButtons("feature_x","Results Grouping variable:", c(grouping_variables), selected = "cluster"),
-                               radioButtons("score", "Scoring approach:", c("unscaled", "scaled"), selected="unscaled"),
                              
-                               sliderInput(inputId = 'clusters', label = 'Number of clusters', value = 2, min = 2, max = 8),
-                               plotOutput("clusterplot2", height = "200px"),
-                               circle = TRUE, status = "danger", icon = icon("cog"), width = "300px",
-                               tooltip = tooltipOptions(title = "Click to see inputs !")
-                             ),
-                             
-                               plotOutput("plot1", height = "600px")),
+                             plotOutput("plot1", height = "600px")),
                     
                     tabPanel(title="Results Table",
-                             box(width = 12,
-                               tableOutput("table"),
-                               dataTableOutput("table2"))),
+                             fluidRow(
+                             box(width=8,
+                               tableOutput("table") ),
+                             
+                             box(width=4,
+                                 radioButtons("feature_prop_test","Proportions Test variable:", c(grouping_variables2), selected = "college_degree"),
+                                 valueBoxOutput("prop_test", width=12)
+                                 )
+                             ),
+                             
+                             column(width = 12, 
+                               dataTableOutput("table2")
+                               )
+                             ),
                     
                     tabPanel(title="Comparison Plot",
                              dropdownButton(
@@ -103,22 +126,41 @@ ui <- fluidPage(
                               selectInput("feature_y","Results Independent variable:", c(all), selected = "Proficiency"),
                                
                                circle = TRUE, status = "danger", icon = icon("cog"), width = "300px",
-                               tooltip = tooltipOptions(title = "Click to see inputs !")
+                               tooltip = tooltipOptions(title = "Click to see inputs!")
                                ),
                              
                              plotOutput("results_plot", height = "600px")),
                     
                     tabPanel(title = "Item Analysis",
-                             plotOutput("item_plot", brush="plot_brush", height = "500px"),
-                             tableOutput("data"))
-          
+                             dropdownButton(
+                               tags$h3("List of Input"),
+                               radioButtons("scale_category", "Scale Category", choices = c("Motivation", "Learning Strategy"), selected = "Motivation"),
+                               sliderInput(inputId = 'load_thresh', label = 'Loading threshold (low):', value = .4, min = 0, max = 1),
+                               checkboxGroupInput("item_scales", "Scales to Review:", choices = NULL, selected = NULL),
+                               
+                               circle = TRUE, status = "danger", icon = icon("cog"), width = "300px",
+                               tooltip = tooltipOptions(title = "Click to see inputs!")
+                             ),
+                             plotOutput("item_plot", brush="plot_brush", height = "400px"),
+                             tableOutput("data")
+                             )
                     )
-           
+                  )
     )
-
-server <- function(input, output) {
+    
+  
+server <- function(input, output, session) {
     
     observe(showNotification("Created by Peraton for Army Analysis", duration = 15))
+  
+  category_scales <- reactive({filter(all_scales, category ==input$scale_category)})
+  
+  observeEvent(category_scales(), {
+    choices <- category_scales()$scale
+    updateCheckboxGroupInput(inputId = "item_scales", choices = choices, selected = choices)
+  })
+  
+  
     
     set.seed(111)
     kmeans_clust <- reactive({
@@ -171,9 +213,9 @@ server <- function(input, output) {
     })
     
     #Results tables  
-    table <- reactive({
+    pre_table <- reactive({
         df_cluster2() %>% 
-        select(part_id, cluster, mos_transfer, college_degree, advanced_degree, experience, college_years, experience_years, proficiency) %>% 
+        select(part_id, cluster, mos_transfer, college_degree, advanced_degree, experience, college_years, experience_years) %>% 
         unique() %>%
         group_by(.data[[input$feature_x]]) %>%
         summarise(n = n(),
@@ -182,12 +224,14 @@ server <- function(input, output) {
                       mos_transfer = sum(mos_transfer),
                       college_degree = sum(college_degree),
                       advanced_degree = sum(advanced_degree),
-                      experience = sum(experience), 
-                      proficiency = mean(proficiency))%>% 
-            mutate(proficiency = round(proficiency, 1)) %>% 
+                      experience = sum(experience)) 
+      })
+    
+    table <- reactive ({ 
+      pre_table()%>% 
             mutate_at(vars(mos_transfer, college_degree, advanced_degree, experience), ~round(.x/n*100,1)) %>%
             mutate_at(vars(mos_transfer, college_degree, advanced_degree, experience), ~paste(.x,"%", sep="")) %>% 
-            select(.data[[input$feature_x]], n, mos_transfer, college_degree, advanced_degree, experience, proficiency)
+            select(.data[[input$feature_x]], n, mos_transfer, college_degree, advanced_degree, experience)
     })
     
     output$table <- renderTable( {
@@ -227,7 +271,18 @@ server <- function(input, output) {
     })
     
     #Proportions test and Info Box
-    test_stat  <- reactive (prop.test(table()$Pass, table()$Total)$p.value)
+    prop_test <- reactive ({
+      pre_table() %>% select(n, .data[[input$feature_prop_test]])
+                             })
+    test_stat  <- reactive (prop.test(prop_test()[[input$feature_prop_test]], prop_test()$n)$p.value)
+    
+    output$prop_test <- renderValueBox({
+      
+      valueBox(paste("p value:",round(test_stat(),3)), width = NULL,
+               subtitle = paste("Prop test:",input$feature_prop_test),
+                        color = if_else(test_stat()<.10, "lime", "red")
+               )
+    })
     
     output$proportions_test_value <- renderText(test_stat())
     
@@ -257,19 +312,21 @@ server <- function(input, output) {
     
     output$item_plot <- renderPlot({
       df_item %>% 
-        ggplot(aes(x=mean, y=sd, color=reverse)) +
-        geom_jitter(size=.1) +
-        geom_text(aes(label=item), size = 3.5) +
-        scale_color_manual(values=c("darkgray", "red")) +
+        mutate(loading2 = if_else (loading <= input$load_thresh, "low","normal")) %>% 
+        filter (scale %in% input$item_scales) %>% 
+        ggplot(aes(x=mean, y=sd, color=loading2)) +
+        geom_jitter(size=2) +
+        scale_color_manual(values=c("low" = "red", "normal"="gray")) +
         geom_vline(xintercept = item_mean, linetype="dashed", color="darkgray") +
         geom_hline(yintercept = item_sd, linetype="dashed", color="darkgray") +
         theme(legend.position = "blank") +
         facet_wrap(scale~.)+
-        labs(caption = "Note: reverse scored items in red font")
+        labs(caption = "Note: reverse scored items in red font") +
+        xlim(2,7) + ylim (.5,2)
     })
     
     output$data <- renderTable({
-      brushedPoints(df_item, input$plot_brush)
+      brushedPoints(df_item, input$plot_brush) %>% select(item, mean, sd, loading, reverse, content) %>% arrange(loading)
     })
     
 }
