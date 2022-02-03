@@ -25,6 +25,8 @@ library(shinyjs)
 library(ggpmisc)
 library(ggstatsplot)
 library(DT)
+library(psych)
+library(GPArotation)  
 
 
 # getwd()
@@ -32,22 +34,15 @@ setwd("C:/Users/Administrator.BENNNBX56000004/Documents/Matt DeLoia Files/CEMA P
 
 #read data
 
-df_item <- read_rds("MSLQ_scored.rds") %>% 
-  gather(mslq1:mslq81, key=item, value = score) %>% 
-  mutate(reverse = if_else(item  %in% c('mslq33', 'mslq57', 'mslq52', 'mslq80', 'mslq37', 'mslq60', 'mslq40', 'mslq77'), "yes", "no")) %>% 
-  dplyr::group_by(item, reverse) %>% 
-  dplyr::summarise(mean = mean(score, na.rm = TRUE), sd = sd(score, na.rm = TRUE)) %>% 
-  left_join(read.csv("mslq_questions.csv")) %>% 
-  left_join(read.csv("mslq_scale_alphas.csv")) %>% 
-  left_join(read.csv("item_loadings.csv")) %>% 
-  separate(item, into = c("item1", "item"), sep = "q") %>% 
-  mutate(scale = paste(scale, "(alpha=", round(alpha,2), ")")) %>%
-   dplyr::select(item, mean, sd, loading, content, reverse, scale)
-
+mslq_questions <- read_csv("mslq_questions.csv")
+df_scree <- read_rds("df_scree.rds")
+corMat <- cor(df_scree)
+df_item <- read_rds("df_item.rds") %>% 
+  left_join(read_rds("mslq_scale_alphas.rds")) %>% 
+  mutate(scale = paste(scale, " (alpha=", round(alpha,2), ")", sep="")) %>% 
+  dplyr::select(-alpha)
 item_mean <- mean(df_item$mean)
 item_sd <- mean(df_item$sd)
-item_loading_low <- quantile(df_item$loading, .3 )
-item_loading_high<- quantile(df_item$loading, .7 )
 
 df <- read_rds("MSLQ_scored2.rds") %>%
   group_by(part_id) %>% 
@@ -69,18 +64,20 @@ Learning_Strategy <- c('Rehearsal', 'Elaboration', 'Organization', 'Critical_Thi
 
 all <- c(Motivation, Learning_Strategy)
 
-all_scales <-  Motivation %>% as.data.frame() %>% mutate(category ="Motivation") %>% 
-  bind_rows( Learning_Strategies %>% as.data.frame() %>% mutate(category ="Learning Strategy")) %>% 
+all_scales <-  Motivation %>% as.data.frame() %>% 
+  mutate(category ="Motivation") %>% 
+  bind_rows(Learning_Strategy %>% 
+              as.data.frame() %>% 
+              mutate(category ="Learning Strategy")) %>% 
   dplyr::rename(scale = 1) %>% 
-  left_join(read_csv("mslq_scale_alphas.csv")) %>% 
-  mutate(scale = paste(scale, "(alpha=", round(alpha,2), ")")) %>% 
-  select(-alpha)
+  left_join(read_rds("mslq_scale_alphas.rds")) %>% 
+  mutate(scale = paste(scale, " (alpha=", round(alpha,2), ")", sep="")) %>% 
+  arrange(-alpha) %>% 
+  dplyr::select(-alpha)
   
 
-grouping_variables <- c("cluster","mos_transfer", "college_degree",  "experience")
+grouping_variables <- c("cluster","mos_transfer")
 grouping_variables2 <- c("college_degree", "advanced_degree",  "experience")
-
-
 #############################
 
 ui <- dashboardPage(
@@ -115,7 +112,7 @@ ui <- dashboardPage(
                                  )
                              ),
                              
-                             column(width = 12, 
+                             box(width = 12, 
                                dataTableOutput("table2")
                                )
                              ),
@@ -131,7 +128,9 @@ ui <- dashboardPage(
                              
                              plotOutput("results_plot", height = "600px")),
                     
-                    tabPanel(title = "Item Analysis",
+                    tabPanel(title = "Confirmatory Factor Analysis",
+                             h5("Use the Tooltip to select scales and adjust the threshold of poor item loadings colored RED.  Cronbach alphas measure the internal consistency of scale items."),
+                             h5("*Drag the cursor around items for more information. The BLUE dashed lines indicated overall mean values."),
                              dropdownButton(
                                tags$h3("List of Input"),
                                radioButtons("scale_category", "Scale Category", choices = c("Motivation", "Learning Strategy"), selected = "Motivation"),
@@ -141,12 +140,36 @@ ui <- dashboardPage(
                                circle = TRUE, status = "danger", icon = icon("cog"), width = "300px",
                                tooltip = tooltipOptions(title = "Click to see inputs!")
                              ),
-                             plotOutput("item_plot", brush="plot_brush", height = "400px"),
+                             box(width = 12,
+                             plotOutput("item_plot", brush="plot_brush", height = "400px")
+                             ),
+                             box(width=12,
                              tableOutput("data")
                              )
-                    )
+                             ),
+                    
+                    tabPanel(title = "Exploratory Factor Analysis",
+                             fluidRow(
+                             box(width=12,
+                               sliderInput(inputId = 'factors', label = '# of Factors for efa (scree plot analysis suggests 8 factors):', value = 8, min = 0, max = 20),
+                               verbatimTextOutput("eval"),
+                               br(),
+                               h4("Table listing the TOTAL number of Scale items aligned to each factor."),
+                               dataTableOutput("efa_table")
+                               )
+                             ),
+                             
+                             fluidRow(
+                               box(width = 12,
+                                   h4("Table of scale items by principal components or factors."),
+                               dataTableOutput("efa_table2")
+                               )
+                               
+                               )
+                             )
                   )
-    )
+                  )
+)
     
   
 server <- function(input, output, session) {
@@ -192,7 +215,7 @@ server <- function(input, output, session) {
             mutate(delta_rank = rank(sd)) %>% 
             select(-sd)
         ) %>%
-        filter(measure %in%  c(motivation, learning))
+        filter(measure %in%  c(Motivation, Learning_Strategy))
     })
     
     #main plot
@@ -261,8 +284,8 @@ server <- function(input, output, session) {
             mutate(sig = if_else(p_value <= .05,"**",
                                  if_else(p_value <= .10, "*", ""))) %>%
         as.data.frame() %>% 
-        rownames_to_column("measure") %>% 
-        left_join(df %>% select(measure) %>% unique()) %>% 
+        rownames_to_column("scale") %>%
+        left_join(all_scales %>% separate(scale, into=c("scale"), sep = " ")) %>% 
             arrange(p_value)
     }) 
     
@@ -316,20 +339,79 @@ server <- function(input, output, session) {
         filter (scale %in% input$item_scales) %>% 
         ggplot(aes(x=mean, y=sd, color=loading2)) +
         geom_jitter(size=2) +
-        scale_color_manual(values=c("low" = "red", "normal"="gray")) +
-        geom_vline(xintercept = item_mean, linetype="dashed", color="darkgray") +
-        geom_hline(yintercept = item_sd, linetype="dashed", color="darkgray") +
-        theme(legend.position = "blank") +
+        scale_color_manual(values=c("low" = "red", "normal"="darkgray")) +
+        geom_vline(xintercept = item_mean, linetype="dashed", color="blue") +
+        geom_hline(yintercept = item_sd, linetype="dashed", color="blue") +
+        theme(legend.position = "blank", strip.text = element_text(size=10) ) +
         facet_wrap(scale~.)+
-        labs(caption = "Note: reverse scored items in red font") +
-        xlim(2,7) + ylim (.5,2)
+        xlim(2,7) + ylim (.5,2) +
+        ylab("item score sd") + 
+        xlab("item mean score") 
+        
     })
     
     output$data <- renderTable({
-      brushedPoints(df_item, input$plot_brush) %>% select(item, mean, sd, loading, reverse, content) %>% arrange(loading)
+      brushedPoints(df_item, input$plot_brush) %>% select(item, mean, sd, loading, reverse_scored, content) %>% arrange(-loading)
     })
     
-}
 
+
+#scree plot
+  output$scree_plot <- renderPlot ({
+    fa.parallel(df_scree, fm = "minres", fa = "fa") 
+    })
+  
+  #factor analysis solution
+  solution <- reactive ({
+    fa(r=corMat, 
+                 nfactors = input$factors, rotat="oblimin", fm="minres")
+  })
+  
+  #results data frame
+  df_efa <- reactive({
+    solution()[["loadings"]] %>% 
+    as.matrix.data.frame() %>% 
+    as.data.frame() %>% 
+    cbind(solution()$weights %>% 
+            as.data.frame() %>% 
+            rownames_to_column("item") %>% 
+            dplyr::select(item)) %>% 
+    dplyr::select(item, everything()) %>% 
+    gather(2:(input$factors+1), key=factor, value=loading) %>% 
+    dplyr::group_by(item) %>% 
+    mutate(rank = rank(-1*abs(loading))) %>% 
+    filter(rank<=1) %>% 
+    arrange(factor, -loading) %>% 
+      mutate(loading = round(loading,3)) %>% 
+    left_join(mslq_questions) %>% 
+      arrange(factor, -loading) %>% 
+      dplyr::select(item:scale, content)
+  })
+  
+
+  
+  output$efa_table <- renderDataTable({
+    df_efa() %>% group_by(factor, scale) %>% 
+      summarise(count = n()) %>% 
+      pivot_wider(names_from = "factor", values_from = "count") %>% 
+      mutate_if(is.numeric, ~replace_na(.x, "-"))
+  })
+    
+  output$efa_table2 <- renderDataTable({df_efa()})
+  #model fit metrics
+  
+   eval <- reactive({
+     cbind(solution()$rms, solution()$fit) %>% as.data.frame() %>% 
+    mutate_if(is.numeric, ~round(.x, 3)) %>%
+    rename(RMS = 1, Fit =2) 
+   })
+   
+  output$eval <- renderPrint({
+    eval <- paste("RMS for ", input$factors, "factors = ", eval()$RMS, "; Model Fit = ", eval()$Fit )
+    eval
+  })
+  
+}
+  
 # Run the application 
 shinyApp(ui = ui, server = server)
